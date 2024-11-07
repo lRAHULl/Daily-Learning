@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secContextAtPodLevel
+  labels:
+    name: myapp
+spec:
+  securityContext:
+    runAsUser: 1000
+  containers:
+  - name: myapp
+    image: nginx:latest
+    resources:
+      limits:
+        memory: "128Mi"
+        cpu: "500m"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secContextAtContainerLevel
+  labels:
+    name: myapp
+spec:
+  containers:
+  - name: myapp
+    image: nginx:latest
+    securityContext:
+      capabilities:
+        add:
+        - "MAC_ADMIN"
+        drop:
+        - "all"
+    resources:
+      limits:
+        memory: "128Mi"
+        cpu: "500m"
