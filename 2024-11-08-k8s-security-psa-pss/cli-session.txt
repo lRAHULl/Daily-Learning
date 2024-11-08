@@ -1,0 +1,72 @@
+controlplane ~ ➜  kubectl exec -n kube-system kube-apiserver-controlplane \
+-- kube-apiserver -h | grep enable-admission 
+
+      --admission-control strings              Admission is divided into two phases. In the first phase, only mutating admission plugins run. In the second phase, only validating admission plugins run. The names in the below list may represent a validating plugin, a mutating plugin, or both. The order of plugins in which they are passed to this flag does not matter. Comma-delimited list of: AlwaysAdmit, AlwaysDeny, AlwaysPullImages, CertificateApproval, CertificateSigning, CertificateSubjectRestriction, ClusterTrustBundleAttest, DefaultIngressClass, DefaultStorageClass, DefaultTolerationSeconds, DenyServiceExternalIPs, EventRateLimit, ExtendedResourceToleration, ImagePolicyWebhook, LimitPodHardAntiAffinityTopology, LimitRanger, MutatingAdmissionWebhook, NamespaceAutoProvision, NamespaceExists, NamespaceLifecycle, NodeRestriction, OwnerReferencesPermissionEnforcement, PersistentVolumeClaimResize, PodNodeSelector, PodSecurity, PodTolerationRestriction, Priority, ResourceQuota, RuntimeClass, ServiceAccount, StorageObjectInUseProtection, TaintNodesByCondition, ValidatingAdmissionPolicy, ValidatingAdmissionWebhook. (DEPRECATED: Use --enable-admission-plugins or --disable-admission-plugins instead. Will be removed in a future version.)
+      --enable-admission-plugins strings       admission plugins that should be enabled in addition to default enabled ones (NamespaceLifecycle, LimitRanger, ServiceAccount, TaintNodesByCondition, PodSecurity, Priority, DefaultTolerationSeconds, DefaultStorageClass, StorageObjectInUseProtection, PersistentVolumeClaimResize, RuntimeClass, CertificateApproval, CertificateSigning, ClusterTrustBundleAttest, CertificateSubjectRestriction, DefaultIngressClass, MutatingAdmissionWebhook, ValidatingAdmissionPolicy, ValidatingAdmissionWebhook, ResourceQuota). Comma-delimited list of admission plugins: AlwaysAdmit, AlwaysDeny, AlwaysPullImages, CertificateApproval, CertificateSigning, CertificateSubjectRestriction, ClusterTrustBundleAttest, DefaultIngressClass, DefaultStorageClass, DefaultTolerationSeconds, DenyServiceExternalIPs, EventRateLimit, ExtendedResourceToleration, ImagePolicyWebhook, LimitPodHardAntiAffinityTopology, LimitRanger, MutatingAdmissionWebhook, NamespaceAutoProvision, NamespaceExists, NamespaceLifecycle, NodeRestriction, OwnerReferencesPermissionEnforcement, PersistentVolumeClaimResize, PodNodeSelector, PodSecurity, PodTolerationRestriction, Priority, ResourceQuota, RuntimeClass, ServiceAccount, StorageObjectInUseProtection, TaintNodesByCondition, ValidatingAdmissionPolicy, ValidatingAdmissionWebhook. The order of plugins in this flag does not matter.
+
+controlplane ~ ➜  # apply pod security on namespace 'alpha' with warn=baseline
+
+controlplane ~ ➜  kubectl label ns alpha pod-security.kubernetes.io/warn=baseline
+
+namespace/alpha labeled
+
+controlplane ~ ➜  kubectl apply -f /root/baseline-pod.yaml 
+Warning: would violate PodSecurity "baseline:latest": privileged (container "baseline-pod" must not set securityContext.privileged=true)
+pod/baseline-pod created
+
+controlplane ~ ➜  kubectl label ns beta pod-security.kubernetes.io/enforce=baseline
+namespace/beta labeled
+
+controlplane ~ ➜  kubectl label ns beta pod-security.kubernetes.io/warn=restricted
+namespace/beta labeled
+
+controlplane ~ ➜  kubectl get ns -owide
+NAME              STATUS   AGE
+alpha             Active   6m51s
+beta              Active   6m51s
+default           Active   10m
+kube-flannel      Active   10m
+kube-node-lease   Active   10m
+kube-public       Active   10m
+kube-system       Active   10m
+
+controlplane ~ ➜  kubectl get ns beta --show-labels
+NAME   STATUS   AGE     LABELS
+beta   Active   7m32s   kubernetes.io/metadata.name=beta,pod-security.kubernetes.io/enforce=baseline,pod-security.kubernetes.io/warn=restricted
+
+controlplane ~ ➜  cat ~/multi-psa.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: multi-psa
+  namespace: beta
+spec:
+  containers:
+  - name: multi-psa
+    image: nginx
+    securityContext:
+      runAsUser: 0
+
+controlplane ~ ➜  kubectl apply -f multi-psa.yaml 
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "multi-psa" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "multi-psa" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "multi-psa" must set securityContext.runAsNonRoot=true), runAsUser=0 (container "multi-psa" must not set runAsUser=0), seccompProfile (pod or container "multi-psa" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+pod/multi-psa created
+
+controlplane ~ ➜  cat admission-configuration.yaml 
+apiVersion: admissionregistration.k8s.io/v1
+kind: AdmissionConfiguration
+plugins:
+  - name: PodSecurity
+    configuration:
+      apiVersion: pod-security.admission.config.k8s.io/v1
+      kind: PodSecurityConfiguration
+      defaults:
+        enforce: baseline
+        enforce-version: latest
+        audit: restricted
+        audit-version: latest
+        warn: restricted
+        warn-version: latest
+      exemptions:
+        usernames: [] 
+        runtimeClassNames: [] 
+        namespaces: [my-namespace]  
